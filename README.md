@@ -1,3 +1,3 @@
 # PyTorch framework tutorial
 
-*My examples to start training with PyTorch*
+*My examples to start deep learning (CNN) with PyTorch*
