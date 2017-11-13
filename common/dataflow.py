@@ -1,55 +1,103 @@
+from __future__ import print_function
+
 from collections import defaultdict, Hashable
 
-import torch
+import cv2
+
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.dataloader import DataLoaderIter
 
+
 class ProxyDataset(Dataset):
-    
+
     def __init__(self, ds):
         assert isinstance(ds, Dataset)
-        self.ds = ds        
+        self.ds = ds
 
     def __len__(self):
         return len(self.ds)
-    
+
+
+class ResizedDataset(ProxyDataset):
+
+    def __init__(self, ds, output_size, interpolation=cv2.INTER_CUBIC):
+        super(ResizedDataset, self).__init__(ds)
+        self.output_size = output_size
+        self.interpolation = interpolation
+
+    def __getitem__(self, index):
+        x, y = self.ds[index]
+        # RGBA -> RGB
+        if x.shape[2] == 4:
+            x = x[:, :, 0:3]
+        x = cv2.resize(x, dsize=self.output_size, interpolation=self.interpolation)
+        return x, y
+
+
+class CachedDataset(ProxyDataset):
+
+    def __init__(self, ds, n_cached_images=10000):
+        super(CachedDataset, self).__init__(ds)
+        self.n_cached_images = n_cached_images
+        self.cache = {}
+        self.cache_hist = []
+
+    def reset(self):
+        self.cache = {}
+
+    def __getitem__(self, index):
+        if index in self.cache:
+            return self.cache[index]
+        else:
+            x, y = self.ds[index]
+            if len(self.cache) > self.n_cached_images:
+                first_index = self.cache_hist.pop(0)
+                del self.cache[first_index]
+
+            self.cache[index] = (x, y)
+            self.cache_hist.append(index)
+            return x, y
+
 
 class TransformedDataset(ProxyDataset):
-    
+
     def __init__(self, ds, x_transforms, y_transforms=None):
         super(TransformedDataset, self).__init__(ds)
         assert callable(x_transforms)
         if y_transforms is not None:
-            assert callable(y_transforms)        
-        self.ds = ds        
+            assert callable(y_transforms)
+        self.ds = ds
         self.x_transforms = x_transforms
         self.y_transforms = y_transforms
-            
+
     def __getitem__(self, index):
-        x, y = self.ds[index]       
+        x, y = self.ds[index]
         x = self.x_transforms(x)
         if self.y_transforms is not None:
             y = self.y_transforms(y)
+
         return x, y
 
-    
-class OnCudaDataLoaderIter(DataLoaderIter):
-    
+
+class OnGPUDataLoaderIter(DataLoaderIter):
+
     def __next__(self):
-        batch = super(OnCudaDataLoaderIter, self).__next__()
+        batch = super(OnGPUDataLoaderIter, self).__next__()
         cuda_batch = []
         for b in batch:
             if not b.is_pinned():
                 b = b.pin_memory()
-            cuda_batch.append(b.cuda(async=True))            
+            cuda_batch.append(b.cuda(async=True))
         return cuda_batch
-    
-    
-class OnCudaDataLoader(DataLoader):
-        
+
+    next = __next__  # Python 2 compatibility
+
+
+class OnGPUDataLoader(DataLoader):
+
     def __iter__(self):
-        return OnCudaDataLoaderIter(self)
-    
+        return OnGPUDataLoaderIter(self)
+
 
 class PrintLabelsStats:
     """
