@@ -102,4 +102,7 @@ def _to_ndarray(x):
     elif isinstance(x, Image):
         x = np.asarray(x)
     assert isinstance(x, np.ndarray), "x is of type {}".format(type(x))
+
+    if len(x.shape) == 3 and x.shape[2] == 1:
+        x = x[:, :, 0]
     return x
