@@ -6,6 +6,7 @@ import numpy as np
 from graphviz import Digraph
 
 import torch
+from torch.autograd import Variable
 
 
 def make_dot(var, params=None):

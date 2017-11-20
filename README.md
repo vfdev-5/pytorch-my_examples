@@ -1,19 +1,23 @@
-# PyTorch framework tutorial
+# PyTorch framework tutorials
 
 *My examples to start training with PyTorch*
 
 ## Content
 
-- Basic examples of tensor manipulations with PyTorch
+- *Basics*: basic examples of tensor manipulations with PyTorch
 
-- CIFAR10 Classification 
+- *Cifar10* Classification 
     - Setup dataflow
     - Setup model
     - Training
    
-
+- *Siamese Networks* one-shot learning
+    - Omniglot dataflow
+    - 
 
 ## Dependencies
+
+Notebooks use Python3 kernel
 
 ### PyTorch
 To run tutorial notebooks, install 
@@ -32,3 +36,7 @@ http://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz
 ```
 or using `torchvision.datasets.CIFAR10`
 
+### Other packages
+
+- tqdm
+- 
