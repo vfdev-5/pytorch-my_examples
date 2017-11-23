@@ -7,95 +7,148 @@ import torch
 from torch.autograd import Variable
 
 
-def train_one_epoch(model, train_batches, criterion, optimizer, epoch, n_epochs):
-    losses = AverageMeter()
-    top1 = AverageMeter()
+def train_one_epoch(model, train_batches, criterion, optimizer, epoch, n_epochs, avg_metrics=None):
+    """
+    :param model: class derived from nn.Module
+    :param train_batches: instance of DataLoader
+    :param criterion: loss function, callable with signature loss = criterion(batch_y_pred, batch_y)
+    :param optimizer:
+    :param epoch:
+    :param n_epochs:
+    :param avg_metrics: list of metrics functions, e.g. [metric_fn1, metric_fn2, ...]
+        for example, accuracy(batch_y_pred_tensor, batch_y_true_tensor) -> value
+    :return: list of averages, [loss, ] or [loss, metric1, metric2] if metrics is defined
+    """
+
+    # Loss
+    average_meters = [AverageMeter()]
+
+    if avg_metrics is not None:
+        average_meters.extend([AverageMeter() for _ in avg_metrics])
+
     # switch to train mode
     model.train()
     try:
         with get_tqdm(total=len(train_batches)) as pbar:
-            for i, batch_data in enumerate(train_batches):
+            for i, (batch_x, batch_y) in enumerate(train_batches):
 
-                batch_size = batch_data[0].size(0)
-                batch_data = [Variable(batch_) for batch_ in batch_data]
+                assert torch.is_tensor(batch_y)
+                batch_size = batch_y.size(0)
 
-                batch_x = [batch_ for batch_ in batch_data if len(batch_.size()) == 4]
-                batch_y = [batch_ for batch_ in batch_data if len(batch_.size()) == 1]
+                if isinstance(batch_x, list):
+                    batch_x = [Variable(batch_, requires_grad=True) for batch_ in batch_x]
+                else:
+                    batch_x = [Variable(batch_x, requires_grad=True)]
+                batch_y = Variable(batch_y)
 
-                assert len(batch_y) == 1
-                batch_y = batch_y[0]
-
-                # compute output
+                # compute output and measure loss
                 batch_y_pred = model(*batch_x)
                 loss = criterion(batch_y_pred, batch_y)
-                # measure accuracy and record loss
+                average_meters[0].update(loss.data[0], batch_size)
 
-                print(batch_y_pred.size(), batch_y.size())
-                print(batch_y_pred.is_cuda, batch_y.is_cuda)
+                prefix_str = "Epoch: {}/{}".format(epoch + 1, n_epochs)
+                pbar.set_description_str(prefix_str, refresh=False)
+                post_fix_str = "Loss {loss.avg:.4f}".format(loss=average_meters[0])
 
-                prec1 = accuracy(batch_y_pred.data, batch_y.data)
-                losses.update(loss.data[0], batch_size)
-                top1.update(prec1[0], batch_size)
+                # measure metrics
+                if avg_metrics is not None:
+                    for _fn, av_meter in zip(avg_metrics, average_meters[1:]):
+                        v = _fn(batch_y_pred.data, batch_y.data)
+                        av_meter.update(v, batch_size)
+                        post_fix_str += " | {name} {av_meter.avg:.3f}".format(name=_fn.__name__, av_meter=av_meter)
+
+                pbar.set_postfix_str(post_fix_str, refresh=False)
+                pbar.update(1)
+
                 # compute gradient and do optimizer step
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
 
-                prefix_str = "Epoch: {}/{}".format(epoch + 1, n_epochs)
-                post_fix_str = 'Loss {loss.avg:.4f} | ' + \
-                               'Prec@1 {top1.avg:.3f}'
-                post_fix_str = post_fix_str.format(loss=losses, top1=top1)
-
-                pbar.set_description_str(prefix_str, refresh=False)
-                pbar.set_postfix_str(post_fix_str, refresh=False)
-                pbar.update(1)
-
-        return losses.avg, top1.avg
+        return [m.avg for m in average_meters]
     except KeyboardInterrupt:
-        return None, None
+        return None
 
 
-def validate(model, val_batches, criterion):
-    losses = AverageMeter()
-    top1 = AverageMeter()
+def validate(model, val_batches, criterion, avg_metrics=None, full_data_metrics=None):
+    """
+    :param model:
+    :param val_batches:
+    :param criterion:
+    :param avg_metrics:
+    :param full_data_metrics:
+    :return:
+    """
+
+    # Loss
+    average_meters = [AverageMeter()]
+
+    if avg_metrics is not None:
+        average_meters.extend([AverageMeter() for _ in avg_metrics])
+
+    y_true_full = []
+    y_pred_full = []
+
     # switch to evaluate mode
     model.eval()
     try:
         with get_tqdm(total=len(val_batches)) as pbar:
-            for i, batch_data in enumerate(val_batches):
+            for i, (batch_x, batch_y) in enumerate(val_batches):
 
-                batch_size = batch_data[0].size(0)
-                batch_data = [Variable(batch_, volatile=True) for batch_ in batch_data]
-                batch_x = [batch_ for batch_ in batch_data if len(batch_.size()) == 4]
-                batch_y = [batch_ for batch_ in batch_data if len(batch_.size()) == 1]
-                assert len(batch_y) == 1
-                batch_y = batch_y[0]
-                # compute output
+                assert torch.is_tensor(batch_y)
+                batch_size = batch_y.size(0)
+
+                if isinstance(batch_x, list):
+                    batch_x = [Variable(batch_, volatile=True) for batch_ in batch_x]
+                else:
+                    batch_x = [Variable(batch_x, volatile=True)]
+                batch_y = Variable(batch_y, volatile=True)
+
+                # compute output and measure loss
                 batch_y_pred = model(*batch_x)
                 loss = criterion(batch_y_pred, batch_y)
-                # measure accuracy and record loss
-                prec1 = accuracy(batch_y_pred.data, batch_y.data)
-                losses.update(loss.data[0], batch_size)
-                top1.update(prec1[0], batch_size)
+                average_meters[0].update(loss.data[0], batch_size)
 
-                post_fix_str = 'Loss {loss.avg:.4f} | ' + \
-                               'Prec@1 {top1.avg:.3f}'
-                post_fix_str = post_fix_str.format(loss=losses, top1=top1)
-                pbar.set_description_str("Validation", refresh=False)
+                if full_data_metrics is not None:
+                    _batch_y = batch_y.data
+                    if _batch_y.cuda:
+                        _batch_y = _batch_y.cpu()
+                    y_true_full.append(_batch_y.numpy())
+                    _batch_y_pred = batch_y_pred.data
+                    if _batch_y_pred.cuda:
+                        _batch_y_pred = batch_y_pred.cpu()
+                    y_pred_full.append(_batch_y_pred.numpy())
+
+                # measure average metrics
+                post_fix_str = "Loss {loss.avg:.4f}".format(loss=average_meters[0])
+                # measure metrics
+                if avg_metrics is not None:
+                    for _fn, av_meter in zip(avg_metrics, average_meters[1:]):
+                        v = _fn(batch_y_pred.data, batch_y.data)
+                        av_meter.update(v, batch_size)
+                        post_fix_str += " | {name} {av_meter.avg:.3f}".format(name=_fn.__name__, av_meter=av_meter)
+
                 pbar.set_postfix_str(post_fix_str, refresh=False)
                 pbar.update(1)
 
-            return losses.avg, top1.avg
+            if full_data_metrics is not None:
+                res = []
+                for _fn in full_data_metrics:
+                    res.append(_fn(y_true_full, y_pred_full))
+                return [m.avg for m in average_meters], res
+            else:
+                return [m.avg for m in average_meters]
     except KeyboardInterrupt:
-        return None, None
+        return None
 
 
-def save_checkpoint(logs_path, state):
-    best_model_filenames = glob(os.path.join(logs_path, 'model_val_prec1*'))
+def save_checkpoint(logs_path, val_metric_name, state):
+    best_model_filenames = glob(os.path.join(logs_path, 'model_%s*' % val_metric_name))
     for fn in best_model_filenames:
         os.remove(fn)
-    best_model_filename='model_val_prec1={val_prec1:.4f}.pth.tar'.format(
-        val_prec1=state['val_prec1']
+    best_model_filename = 'model_%s={val_metric_name:.4f}.pth.tar' % val_metric_name
+    best_model_filename = best_model_filename.format(
+        val_metric_name=state[val_metric_name]
     )
     torch.save(state, os.path.join(logs_path, best_model_filename))
 
@@ -106,7 +159,6 @@ def load_checkpoint(filename, model, optimizer=None):
     model.load_state_dict(state['state_dict'])
     if optimizer is not None:
         optimizer.load_state_dict(state['optimizer'])
-    return state
 
 
 def write_csv_log(logs_path, line):
@@ -127,7 +179,6 @@ def _write_log(filename, line):
 
 def verbose_optimizer(optimizer):
     msg = "\nOptimizer: %s\n" % optimizer.__class__.__name__
-    msg += "Optimizer parameters: \n"
     for pg in optimizer.param_groups:
         msg += "- Param group: \n"
         for k in pg:
@@ -161,15 +212,24 @@ def accuracy(output, target, topk=(1,)):
     maxk = max(topk)
     batch_size = target.size(0)
 
-    _, pred = output.topk(maxk, 1, True, True)
-    pred = pred.t()
-    correct = pred.eq(target.view(1, -1).expand_as(pred))
+    if output.size(1) > 1:
+        _, pred = output.topk(maxk)
+    else:
+        pred = torch.round(output)
+
+    if len(target.size()) == 1:
+        target = target.view(-1, 1)
+    
+    if pred.type() != target.type():
+        target = target.type_as(pred)
+
+    correct = pred.eq(target.expand_as(pred))
 
     res = []
     for k in topk:
-        correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
-        res.append(correct_k.mul_(100.0 / batch_size))
-    return res
+        correct_k = correct[:, :k].float().sum()
+        res.append(correct_k * (1.0 / batch_size))
+    return res if len(topk) > 1 else res[0]
 
 
 def get_tqdm_kwargs(**kwargs):

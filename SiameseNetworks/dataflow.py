@@ -123,14 +123,14 @@ class SameOrDifferentPairsDataset(ProxyDataset):
         i1, i2 = self.pairs[index, :]
         x1, y1 = self.ds[i1]
         x2, y2 = self.ds[i2]
-        return x1, x2, int(y1 == y2)
+        return [x1, x2], int(y1 == y2)
 
 
 class PairTransformedDataset(TransformedDataset):
     def __getitem__(self, index):
-        x1, x2, y = self.ds[index]
+        (x1, x2), y = self.ds[index]
         x1 = self.x_transforms(x1)
         x2 = self.x_transforms(x2)
         if self.y_transforms is not None:
             y = self.y_transforms(y)
-        return x1, x2, y
+        return [x1, x2], y

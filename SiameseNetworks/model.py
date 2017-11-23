@@ -62,8 +62,7 @@ class SiameseNetworks(Module):
         self.net = Net(input_shape)
 
         self.classifier = Sequential(
-            Linear(4096, 1, bias=False),
-            Sigmoid()
+            Linear(4096, 1, bias=False)            
         )
         self._weight_init()
 
