@@ -31,4 +31,3 @@ We use CIFAR10 dataset in the tutorial (python batches) that can be downloaded f
 http://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz
 ```
 or using `torchvision.datasets.CIFAR10`
-
