@@ -1,13 +1,13 @@
 from __future__ import print_function
 
-from collections import defaultdict, Hashable
+from collections import defaultdict, Hashable, Mapping, Sequence
 
 import numpy as np
 import cv2
 
 import torch
 from torch.utils.data import Dataset, DataLoader
-from torch.utils.data.dataloader import DataLoaderIter
+from torch.utils.data.dataloader import DataLoaderIter, string_classes
 
 
 class ProxyDataset(Dataset):
@@ -94,27 +94,24 @@ class TransformedDataset(ProxyDataset):
         return x, y
 
 
+def to_cuda(batch):
+    if torch.is_tensor(batch):
+        return batch.cuda(async=True)
+    elif isinstance(batch, string_classes):
+        return batch
+    elif isinstance(batch, Mapping):
+        return {k: to_cuda(sample) for k, sample in batch.items()}
+    elif isinstance(batch, Sequence):
+        return [to_cuda(sample) for sample in batch]
+    else:
+        raise TypeError(("batch must contain tensors, numbers, dicts or lists; found {}"
+                         .format(type(batch[0]))))
+
+
 class OnGPUDataLoaderIter(DataLoaderIter):
-
-    def _to_cuda(self, t):
-        if not t.is_pinned():
-            t = t.pin_memory()
-        return t.cuda(async=True)
-
     def __next__(self):
         batch = super(OnGPUDataLoaderIter, self).__next__()
-        cuda_batch = []
-        for b in batch:  # b is (batch_x, batch_y) or ((batch_x1, batch_x2, ...), (batch_y1, batch_y2, ...))
-            if torch.is_tensor(b):
-                cuda_batch.append(self._to_cuda(b))
-            else:
-                assert isinstance(b, tuple) or isinstance(b, list)
-                cuda_b = []
-                for _b in b:
-                    assert torch.is_tensor(_b)
-                    cuda_b.append(self._to_cuda(_b))
-                cuda_batch.append(cuda_b)
-        return cuda_batch
+        return to_cuda(batch)
 
     next = __next__  # Python 2 compatibility
 

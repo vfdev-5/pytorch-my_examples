@@ -74,7 +74,7 @@ def _create_diff_pairs(labels_indices, nb_samples_per_two_classes):
     diff_pairs = []
     for i, indices1 in enumerate(labels_indices.values()):
         for j, indices2 in enumerate(labels_indices.values()):
-            if (i <= j):
+            if i <= j:
                 continue
             ind1 = np.random.choice(indices1, size=nb_samples_per_two_classes)
             ind2 = np.random.choice(indices2, size=nb_samples_per_two_classes)

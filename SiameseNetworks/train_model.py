@@ -38,21 +38,20 @@ OMNIGLOT_REPO_PATH = 'omniglot'
 # ################# Setup conf ######################
 
 conf = {
-    'nb_train_pairs': 30000,
+    'nb_train_pairs': 90000,
     'nb_val_pairs': 10000,
     'nb_test_pairs': 10000,
 
     'weight_decay': 0.01,
     
     'lr_features': 0.00006,
-    'lr_classifier': 0.00006,
+    'lr_classifier': 0.00007,
     
     'n_epochs': 50,
     'batch_size': 64,
     'num_workers': 15,
     
-    'gamma': 0.99,
-
+    'gamma': 0.789,
 }
 
 
@@ -180,7 +179,7 @@ scheduler = ExponentialLR(optimizer, gamma=conf['gamma'])
 onplateau_scheduler = ReduceLROnPlateau(optimizer, factor=0.5, patience=2, verbose=True)
 
 now = datetime.now()
-logs_path = os.path.join('logs', 'seamese_networks_verification_task_%s' % (now.strftime("%Y%m%d_%H%M")))
+logs_path = os.path.join('logs', 'siamese_networks_verification_task_%s' % (now.strftime("%Y%m%d_%H%M")))
 if not os.path.exists(logs_path):
     os.makedirs(logs_path)
     
@@ -217,7 +216,7 @@ for epoch in range(conf['n_epochs']):
     
     # remember best accuracy and save checkpoint
     if val_acc > best_acc:
-        best_prec1 = max(val_acc, best_acc)
+        best_acc = max(val_acc, best_acc)
         save_checkpoint(logs_path, 'val_acc', 
                         {'epoch': epoch + 1,
                          'state_dict': siamese_net.state_dict(),
