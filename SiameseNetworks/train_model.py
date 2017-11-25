@@ -38,20 +38,20 @@ OMNIGLOT_REPO_PATH = 'omniglot'
 # ################# Setup conf ######################
 
 conf = {
-    'nb_train_pairs': 90000,
+    'nb_train_pairs': 100000,
     'nb_val_pairs': 10000,
     'nb_test_pairs': 10000,
 
-    'weight_decay': 0.01,
+    'weight_decay': 0.012,
     
     'lr_features': 0.00006,
-    'lr_classifier': 0.00007,
+    'lr_classifier': 0.00006,
     
     'n_epochs': 50,
     'batch_size': 64,
     'num_workers': 15,
     
-    'gamma': 0.789,
+    'gamma': 0.9,
 }
 
 

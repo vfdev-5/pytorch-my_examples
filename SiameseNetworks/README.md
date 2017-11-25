@@ -26,7 +26,7 @@ One-shot learning evaluation is done as described in the paper on 10 test alphab
 | Training | | One-shot learning |   
 --- | --- | --- | ---
 nb of pairs | nb epochs | val accuracy | mean accuracy  | mean accuracy@3 
-    90k     |    50     |   0.8756     | 0.375833333333 | 0.634166666667 
+    100k    |    50     |   0.8728     | 0.3725         | 0.67125
     
 
 
