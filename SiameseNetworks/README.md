@@ -19,6 +19,16 @@ train image 2 ---[CNN]---- features ---[is same?] ---- Proba class 2
 train image N ---[CNN]---- features ---[is same?] ---- Proba class N
 ```
 
+### Results:
+
+One-shot learning evaluation is done as described in the paper on 10 test alphabets 2 trials by 20-way on each alphabet
+
+| Training | | One-shot learning |   
+--- | --- | --- | ---
+nb of pairs | nb epochs | val accuracy | mean accuracy  | mean accuracy@3 
+    90k     |    50     |   0.8756     | 0.375833333333 | 0.634166666667 
+    
+
 
 ## Details 
 
@@ -55,7 +65,11 @@ Following the paper we apply random geometrical data augmentations:
 
 ### Training strategy
 
-Training and validation of the model is done on image pairs. Dataset split is done according to the paper.  
+Training and validation of the model is done on image pairs. Dataset split is done according to the paper.
+
+However, contrarily to the paper, we do not produce augmented datasets of 270000, 810000, and 1350000 
+effective examples. We train on ~100k pairs produced with random geometrical transformations.
+
  
 ### One-shot learning evaluation
 
