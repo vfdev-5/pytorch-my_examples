@@ -1,14 +1,7 @@
 # Created by https://www.gitignore.io/api/python, and modified...
 
 ## Custom ignores
-input/
-results/*
-*.lmdb
-*.binproto
-*.caffemodel
-*.solverstate
-*.h5
-.floyd*
+omniglot
 logs*/
 *train_log
 tmp_pipedir

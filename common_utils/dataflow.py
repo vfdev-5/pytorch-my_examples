@@ -1,11 +1,13 @@
 from __future__ import print_function
 
-from collections import defaultdict, Hashable
+from collections import defaultdict, Hashable, Mapping, Sequence
 
+import numpy as np
 import cv2
 
+import torch
 from torch.utils.data import Dataset, DataLoader
-from torch.utils.data.dataloader import DataLoaderIter
+from torch.utils.data.dataloader import DataLoaderIter, string_classes
 
 
 class ProxyDataset(Dataset):
@@ -20,17 +22,30 @@ class ProxyDataset(Dataset):
 
 class ResizedDataset(ProxyDataset):
 
-    def __init__(self, ds, output_size, interpolation=cv2.INTER_CUBIC):
+    def __init__(self, ds, output_size, interpolation=cv2.INTER_CUBIC, resize_target=False):
         super(ResizedDataset, self).__init__(ds)
         self.output_size = output_size
         self.interpolation = interpolation
+        self.resize_target = resize_target
 
-    def __getitem__(self, index):
-        x, y = self.ds[index]
+    def _resize(self, x):
         # RGBA -> RGB
         if x.shape[2] == 4:
             x = x[:, :, 0:3]
+
+        _, _, c = x.shape
         x = cv2.resize(x, dsize=self.output_size, interpolation=self.interpolation)
+        if c == 1 and len(x.shape) == 2:
+            x = np.expand_dims(x, axis=-1)
+        return x
+
+    def __getitem__(self, index):
+        x, y = self.ds[index]
+
+        x = self._resize(x)
+        if self.resize_target:
+            y = self._resize(y)
+
         return x, y
 
 
@@ -79,16 +94,24 @@ class TransformedDataset(ProxyDataset):
         return x, y
 
 
-class OnGPUDataLoaderIter(DataLoaderIter):
+def to_cuda(batch):
+    if torch.is_tensor(batch):
+        return batch.cuda(async=True)
+    elif isinstance(batch, string_classes):
+        return batch
+    elif isinstance(batch, Mapping):
+        return {k: to_cuda(sample) for k, sample in batch.items()}
+    elif isinstance(batch, Sequence):
+        return [to_cuda(sample) for sample in batch]
+    else:
+        raise TypeError(("batch must contain tensors, numbers, dicts or lists; found {}"
+                         .format(type(batch[0]))))
 
+
+class OnGPUDataLoaderIter(DataLoaderIter):
     def __next__(self):
         batch = super(OnGPUDataLoaderIter, self).__next__()
-        cuda_batch = []
-        for b in batch:
-            if not b.is_pinned():
-                b = b.pin_memory()
-            cuda_batch.append(b.cuda(async=True))
-        return cuda_batch
+        return to_cuda(batch)
 
     next = __next__  # Python 2 compatibility
 

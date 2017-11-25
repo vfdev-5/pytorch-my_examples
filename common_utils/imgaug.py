@@ -17,7 +17,35 @@ class ToNumpy(object):
         return np.asarray(img)
 
 
+class Resize(object):
+
+    def __init__(self, output_size, interpolation=cv2.INTER_CUBIC):
+        self.output_size = output_size
+        self.interpolation = interpolation
+
+    def __call__(self, img):
+        # RGBA -> RGB
+        if img.shape[2] == 4:
+            img = img[:, :, 0:3]
+        img = cv2.resize(img, dsize=self.output_size, interpolation=self.interpolation)
+        return img
+
+
+class RandomApply(object):
+
+    def __init__(self, transform, proba=0.5):
+        assert transform is not None and callable(transform)
+        self.transform = transform
+        self.proba = proba
+
+    def __call__(self, img):
+        if self.proba > np.random.rand():
+            return img
+        return self.transform(img)
+
+
 class RandomOrder(object):
+
     def __init__(self, transforms):
         assert transforms is not None
         self.transforms = transforms
