@@ -23,11 +23,11 @@ train image N ---[CNN]---- features ---[is same?] ---- Proba class N
 
 One-shot learning evaluation is done as described in the paper on 10 test alphabets 2 trials by 20-way on each alphabet
 
-| Training | | One-shot learning |   
---- | --- | --- | ---
-nb of pairs | nb epochs | val accuracy | mean accuracy  | mean accuracy@3 
-    100k    |    50     |   0.8728     | 0.3725         | 0.67125
-    
+
+| Training |  |  || One-shot learning | |
+|---|---|---|---|---|---|
+|nb of pairs | nb epochs | val accuracy || mean accuracy  | mean accuracy@3 |
+|    100k    |    50     |   0.8728     || 0.3725         | 0.67125         |
 
 
 ## Details 
