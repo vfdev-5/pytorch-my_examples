@@ -45,7 +45,7 @@ they are from the same class or from different classes:
 
 ```
 train image 1 ------[CNN]---- features --------\
-                                         [L2 distance] ---- [binary classifier] ---- probability    
+                                         [L1 distance] ---- [binary classifier] ---- probability    
 train image 2 ------[CNN]---- features --------/ 
 ``` 
 

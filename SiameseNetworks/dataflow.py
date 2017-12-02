@@ -5,6 +5,7 @@ from collections import defaultdict
 import numpy as np
 import cv2
 
+import torch
 from torch.utils.data import Dataset
 
 # Setup common_utils package:
@@ -90,29 +91,40 @@ class SameOrDifferentPairsDataset(ProxyDataset):
         - 'different' if images are from different classes
     """
 
-    def __init__(self, ds, nb_pairs, shuffle=True):
+    def __init__(self, ds, nb_pairs, class_indices=None, shuffle=True, seed=None):
         super(SameOrDifferentPairsDataset, self).__init__(ds)
         self.nb_pairs = nb_pairs
-        # get mapping y_label -> indices
-        labels_indices = defaultdict(list)
-        alphabet_indices = defaultdict(list)
-        for i, (_, y) in enumerate(ds):
-            alphabet_indices[y].append(i)
-            y = y.split("/")[0]
-            labels_indices[y].append(i)
+
+        if class_indices is None:
+            # get mapping y_label -> indices
+            class_indices = defaultdict(list)
+            for i, (_, y) in enumerate(ds):
+                class_indices[y].append(i)
+
+        if shuffle and seed is not None:
+            np.random.seed(seed)
 
         half_nb_pairs = int(nb_pairs // 2)
-        n1 = int(np.ceil(half_nb_pairs / len(alphabet_indices)))
-        same_pairs = _create_same_pairs(alphabet_indices, n1)
-        if len(same_pairs) > half_nb_pairs:
-            same_pairs = same_pairs[:half_nb_pairs, :]
+        self.nb_same_pairs_per_class = int(np.ceil(half_nb_pairs / len(class_indices)))
+        self.same_pairs = _create_same_pairs(class_indices, self.nb_same_pairs_per_class)
+        if len(self.same_pairs) > half_nb_pairs:
+            if shuffle:
+                np.random.shuffle(self.same_pairs)
+            self.same_pairs = self.same_pairs[:half_nb_pairs, :]
 
-        n2 = int(np.ceil(nb_pairs / (len(labels_indices) * (len(labels_indices) - 1))))
-        diff_pairs = _create_diff_pairs(labels_indices, n2)
-        if len(diff_pairs) > half_nb_pairs:
-            diff_pairs = diff_pairs[:half_nb_pairs, :]
+        self.nb_samples_per_two_classes = int(np.ceil(nb_pairs / (len(class_indices) * (len(class_indices) - 1))))
+        self.diff_pairs = _create_diff_pairs(class_indices, self.nb_samples_per_two_classes)
+        if len(self.diff_pairs) > half_nb_pairs:
+            if shuffle:
+                np.random.shuffle(self.diff_pairs)
+            self.diff_pairs = self.diff_pairs[:half_nb_pairs, :]
 
-        self.pairs = np.concatenate((same_pairs, diff_pairs), axis=0)
+        # self.pairs = np.concatenate((self.same_pairs, self.diff_pairs), axis=0)
+        self.pairs = np.zeros((len(self.same_pairs) + len(self.diff_pairs), 2), dtype=np.int)
+        for i, (s, d) in enumerate(zip(self.same_pairs, self.diff_pairs)):
+            self.pairs[2 * i, :] = s
+            self.pairs[2 * i + 1, :] = d
+
         if shuffle:
             np.random.shuffle(self.pairs)
 
@@ -126,6 +138,87 @@ class SameOrDifferentPairsDataset(ProxyDataset):
         return [x1, x2], int(y1 == y2)
 
 
+class SameOrDifferentPairsBatchDataset(ProxyDataset):
+    """
+    Create a dataset of pairs uniformly sampled from input dataset
+    Pairs are set of two images classified as
+        - 'same' if images are from the same class
+        - 'different' if images are from different classes
+    """
+
+    def __init__(self, ds, nb_batches, batch_size,
+                 class_indices=None,
+                 x_transforms=None, y_transforms=None,
+                 pin_memory=True, on_gpu=True):
+        super(SameOrDifferentPairsBatchDataset, self).__init__(ds)
+        self.nb_batches = nb_batches
+        self.batch_size = batch_size
+        self.pin_memory = pin_memory
+        self.on_gpu = on_gpu
+        self.x_transforms = x_transforms if x_transforms is not None else lambda x: x
+        self.y_transforms = y_transforms if y_transforms is not None else lambda y: y
+
+        if class_indices is None:
+            # get mapping y_label -> indices
+            class_indices = defaultdict(list)
+            for i, (_, y) in enumerate(ds):
+                class_indices[y].append(i)
+
+        self.class_indices = class_indices
+        self.classes = list(self.class_indices.keys())
+
+    def __len__(self):
+        return self.nb_batches
+
+    def __getitem__(self, index):
+
+        if index >= self.nb_batches:
+            raise IndexError()
+
+        random_classes = np.random.choice(self.classes, size=(self.batch_size, ), replace=False)
+
+        targets = np.zeros((self.batch_size, 1), dtype=np.float32)
+        # float target is needed in BCEWithLogitsLoss (v 0.2)
+        # target should have size (batch_size, 1) same size is produced by network
+        targets[self.batch_size // 2:] = 1.0
+        targets = torch.from_numpy(targets)
+
+        xs1 = []
+        xs2 = []
+
+        for i in range(self.batch_size):
+            c = random_classes[i]
+            n_samples = len(self.class_indices[c])
+            index1 = np.random.randint(0, n_samples)
+            x1, _ = self.ds[self.class_indices[c][index1]]
+            x1 = self.x_transforms(x1)
+            xs1.append(x1.unsqueeze(0))
+
+            if i < self.batch_size // 2:
+                diff_classes = list(self.classes)
+                diff_classes.remove(c)
+                c = diff_classes[np.random.randint(len(diff_classes))]
+            n_samples = len(self.class_indices[c])
+            index2 = np.random.randint(0, n_samples)
+            x2, _ = self.ds[self.class_indices[c][index2]]
+            x2 = self.x_transforms(x2)
+            xs2.append(x2.unsqueeze(0))
+
+        xs1 = torch.cat(xs1)
+        xs2 = torch.cat(xs2)
+
+        if self.pin_memory:
+            xs1 = xs1.pin_memory()
+            xs2 = xs2.pin_memory()
+            targets = targets.pin_memory()
+            if self.on_gpu:
+                xs1 = xs1.cuda()
+                xs2 = xs2.cuda()
+                targets = targets.cuda()
+
+        return [xs1, xs2], targets
+
+
 class PairTransformedDataset(TransformedDataset):
     def __getitem__(self, index):
         (x1, x2), y = self.ds[index]
@@ -134,3 +227,5 @@ class PairTransformedDataset(TransformedDataset):
         if self.y_transforms is not None:
             y = self.y_transforms(y)
         return [x1, x2], y
+
+

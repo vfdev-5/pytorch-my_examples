@@ -120,6 +120,8 @@ def validate(model, val_batches, criterion, avg_metrics=None, full_data_metrics=
                     y_pred_full.append(_batch_y_pred.numpy())
 
                 # measure average metrics
+                prefix_str = "Validation: "
+                pbar.set_description_str(prefix_str, refresh=False)
                 post_fix_str = "Loss {loss.avg:.4f}".format(loss=average_meters[0])
                 # measure metrics
                 if avg_metrics is not None:

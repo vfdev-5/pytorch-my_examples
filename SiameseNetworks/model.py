@@ -1,7 +1,7 @@
 
 import torch
 from torch.nn import Module, Sequential
-from torch.nn import Linear, Conv2d, MaxPool2d, Sigmoid, ReLU
+from torch.nn import Linear, Conv2d, MaxPool2d, Sigmoid, ReLU, Dropout
 from torch.autograd import Variable
 
 
@@ -11,7 +11,7 @@ class Flatten(Module):
 
 
 class Net(Module):
-    def __init__(self, input_shape):
+    def __init__(self, input_shape, with_dropout=False):
         """
         :param input_shape: input image shape, (h, w, c)
         """
@@ -41,11 +41,16 @@ class Net(Module):
         x = Flatten()(x)
         n = x.size()[1]
 
-        self.classifier = Sequential(
+        classifier = [
             Flatten(),
             Linear(n, 4096),
             Sigmoid()
-        )
+        ]
+
+        if with_dropout:
+            classifier.insert(1, Dropout(p=0.5))
+
+        self.classifier = Sequential(*classifier)
 
     def forward(self, x):
         x = self.features(x)
@@ -54,17 +59,28 @@ class Net(Module):
 
 
 class SiameseNetworks(Module):
-    def __init__(self, input_shape):
+    def __init__(self, input_shape, with_dropout=False, distance_type='L1'):
         """
         :param input_shape: input image shape, (h, w, c)
+        :param distance_type: component-wise distance between feature vectors produced by a single CNN
+            Default, is L1 distance (used in the paper)
+            Possible values: 'L1', 'Cosine'
         """
+        assert distance_type in ['L1', 'Cosine']
         super(SiameseNetworks, self).__init__()
-        self.net = Net(input_shape)
+        self.net = Net(input_shape, with_dropout)
 
-        self.classifier = Sequential(
-            Linear(4096, 1, bias=False)            
-        )
+        classifier = [Linear(4096, 1, bias=False)]
+        if with_dropout:
+            classifier.insert(0, Dropout(p=0.5))
+
+        self.classifier = Sequential(*classifier)
         self._weight_init()
+
+        if distance_type == 'L1':
+            self.dist_fn = torch.abs
+        elif distance_type == 'Cosine':
+            self.dist_fn = torch.cos
 
     def _weight_init(self):
         for m in self.modules():
@@ -79,6 +95,6 @@ class SiameseNetworks(Module):
     def forward(self, x1, x2):
         x1 = self.net(x1)
         x2 = self.net(x2)
-        # L1 component-wise distance between vectors:
-        x = torch.pow(torch.abs(x1 - x2), 2.0)
+        # Component-wise distance between vectors:
+        x = self.dist_fn(x1 - x2)
         return self.classifier(x)

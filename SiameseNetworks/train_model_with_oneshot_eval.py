@@ -27,7 +27,7 @@ from common_utils.dataflow import OnGPUDataLoader
 from common_utils.training_utils import train_one_epoch, validate, write_csv_log, write_conf_log, verbose_optimizer, save_checkpoint
 from common_utils.training_utils import accuracy
 
-from dataflow import OmniglotDataset, SameOrDifferentPairsDataset, PairTransformedDataset
+from dataflow import OmniglotDataset, SameOrDifferentPairsBatchDataset, PairTransformedDataset
 from model import SiameseNetworks
 
 
@@ -38,20 +38,19 @@ OMNIGLOT_REPO_PATH = 'omniglot'
 # ################# Setup conf ######################
 
 conf = {
-    'nb_train_pairs': 100000,
-    'nb_val_pairs': 10000,
-    'nb_test_pairs': 10000,
+    'nb_train_batches': 1500,
+    'nb_val_batches': 500,
 
     'weight_decay': 0.011,
-    
+
     'lr_features': 0.00006,
-    'lr_classifier': 0.00008,
-    
+    'lr_classifier': 0.00006,
+
     'n_epochs': 50,
     'batch_size': 64,
-    'num_workers': 15,
-    
-    'gamma': 0.9,
+    'num_workers': 10,
+
+    'gamma': 0.999,
 }
 
 
@@ -69,13 +68,13 @@ assert len(train_alphabets) > 1 and len(test_alphabets) > 1, "%s \n %s" % (train
 
 train_alphabet_char_id_drawer_ids = {}
 for a in train_alphabets:
-    char_ids = os.listdir(os.path.join(TRAIN_DATA_PATH, a))    
+    char_ids = os.listdir(os.path.join(TRAIN_DATA_PATH, a))
     train_alphabet_char_id_drawer_ids[a] = {}
     for char_id in char_ids:
         res = os.listdir(os.path.join(TRAIN_DATA_PATH, a, char_id))
         train_alphabet_char_id_drawer_ids[a][char_id] = [_id[:-4] for _id in res]
-        
-        
+
+
 test_alphabet_char_id_drawer_ids = {}
 for a in test_alphabets:
     char_ids = os.listdir(os.path.join(TEST_DATA_PATH, a))
@@ -86,11 +85,10 @@ for a in test_alphabets:
 
 
 # Sample 12 drawers out of 20
-all_drawers_ids = np.arange(20) 
+all_drawers_ids = np.arange(20)
 train_drawers_ids = np.random.choice(all_drawers_ids, size=12, replace=False)
 # Sample 4 drawers out of remaining 8
-val_drawers_ids = np.random.choice(list(set(all_drawers_ids) - set(train_drawers_ids)), size=4, replace=False)
-test_drawers_ids = np.array(list(set(all_drawers_ids) - set(val_drawers_ids) - set(train_drawers_ids)))
+val_drawers_ids = np.random.choice(list(set(all_drawers_ids) - set(train_drawers_ids)), size=8, replace=False)
 
 
 def create_str_drawers_ids(drawers_ids):
@@ -98,23 +96,14 @@ def create_str_drawers_ids(drawers_ids):
 
 train_drawers_ids = create_str_drawers_ids(train_drawers_ids)
 val_drawers_ids = create_str_drawers_ids(val_drawers_ids)
-test_drawers_ids = create_str_drawers_ids(test_drawers_ids)
 
-train_ds = OmniglotDataset("Train", data_path=TRAIN_DATA_PATH, 
-                           alphabet_char_id_drawers_ids=train_alphabet_char_id_drawer_ids, 
+train_ds = OmniglotDataset("Train", data_path=TRAIN_DATA_PATH,
+                           alphabet_char_id_drawers_ids=train_alphabet_char_id_drawer_ids,
                            drawers_ids=train_drawers_ids)
 
-val_ds = OmniglotDataset("Test", data_path=TEST_DATA_PATH, 
-                         alphabet_char_id_drawers_ids=test_alphabet_char_id_drawer_ids, 
+val_ds = OmniglotDataset("Test", data_path=TEST_DATA_PATH,
+                         alphabet_char_id_drawers_ids=test_alphabet_char_id_drawer_ids,
                          drawers_ids=val_drawers_ids)
-
-test_ds = OmniglotDataset("Test", data_path=TEST_DATA_PATH, 
-                          alphabet_char_id_drawers_ids=test_alphabet_char_id_drawer_ids, 
-                          drawers_ids=test_drawers_ids)
-
-train_pairs = SameOrDifferentPairsDataset(train_ds, nb_pairs=int(30e3))
-val_pairs = SameOrDifferentPairsDataset(val_ds, nb_pairs=int(10e3))
-test_pairs = SameOrDifferentPairsDataset(test_ds, nb_pairs=int(10e3))
 
 train_data_aug = Compose([
     RandomApply(
@@ -128,34 +117,24 @@ test_data_aug = Compose([
     ToTensor()
 ])
 
-# This produces target of size (batch_size, 1) of type float
-# Float target type is needed in BCEWithLogitsLoss (v 0.2)
-# Size (batch_size, 1) should correspond to network output
-y_transform = lambda y: torch.FloatTensor([y])
 
-train_aug_pairs = PairTransformedDataset(train_pairs, x_transforms=train_data_aug, y_transforms=y_transform)
-val_aug_pairs = PairTransformedDataset(val_pairs, x_transforms=test_data_aug, y_transforms=y_transform)
-test_aug_pairs = PairTransformedDataset(test_pairs, x_transforms=test_data_aug, y_transforms=y_transform)
+train_batches = SameOrDifferentPairsBatchDataset(train_ds,
+                                                 batch_size=conf['batch_size'],
+                                                 nb_batches=conf['nb_train_batches'],
+                                                 x_transforms=train_data_aug,
+                                                 pin_memory=HAS_GPU, on_gpu=HAS_GPU)
 
-_DataLoader = OnGPUDataLoader if HAS_GPU and torch.cuda.is_available() else DataLoader
-
-train_batches = _DataLoader(train_aug_pairs, batch_size=conf['batch_size'], 
-                            shuffle=True, num_workers=5, 
-                            drop_last=True)
-
-val_batches = _DataLoader(val_aug_pairs, batch_size=conf['batch_size'],
-                          shuffle=True, num_workers=conf['num_workers'],
-                          pin_memory=True, drop_last=True)
-
-test_batches = _DataLoader(test_aug_pairs, batch_size=conf['batch_size'], 
-                           shuffle=False, num_workers=conf['num_workers'],                   
-                           pin_memory=True, drop_last=False)
-
+val_batches = SameOrDifferentPairsBatchDataset(val_ds,
+                                               batch_size=conf['batch_size'],
+                                               nb_batches=conf['nb_train_batches'],
+                                               x_transforms=train_data_aug,
+                                               pin_memory=HAS_GPU, on_gpu=HAS_GPU)
 
 # ################# Setup model and optimization algorithm ######################
 
 siamese_net = SiameseNetworks(input_shape=(105, 105, 1))
 if HAS_GPU and torch.cuda.is_available():
+    print("Put model on GPU")
     siamese_net = siamese_net.cuda()
 
 
@@ -165,15 +144,16 @@ def accuracy_logits(y_logits, y_true):
 
 criterion = BCEWithLogitsLoss()
 if HAS_GPU and torch.cuda.is_available():
+    print("Put loss function on GPU")
     criterion = criterion.cuda()
 
 optimizer = Adam([{
     'params': siamese_net.net.features.parameters(),
-    'lr': conf['lr_features'],    
+    'lr': conf['lr_features'],
 }, {
     'params': siamese_net.classifier.parameters(),
     'lr': conf['lr_classifier']
-}], 
+}],
     weight_decay=conf['weight_decay']
 )
 
@@ -185,8 +165,8 @@ now = datetime.now()
 logs_path = os.path.join('logs', 'siamese_networks_verification_task_%s' % (now.strftime("%Y%m%d_%H%M")))
 if not os.path.exists(logs_path):
     os.makedirs(logs_path)
-    
-    
+
+
 write_conf_log(logs_path, "{}".format(conf))
 write_conf_log(logs_path, verbose_optimizer(optimizer))
 
@@ -199,9 +179,9 @@ for epoch in range(conf['n_epochs']):
     print(verbose_optimizer(optimizer))
 
     # train for one epoch
-    ret = train_one_epoch(siamese_net, train_batches, 
-                          criterion, optimizer,                                               
-                          epoch, conf['n_epochs'], avg_metrics=[accuracy_logits,])
+    ret = train_one_epoch(siamese_net, train_batches,
+                          criterion, optimizer,
+                          epoch, conf['n_epochs'], avg_metrics=[accuracy_logits, ])
     if ret is None:
         break
     train_loss, train_acc = ret
@@ -211,17 +191,20 @@ for epoch in range(conf['n_epochs']):
     if ret is None:
         break
     val_loss, val_acc = ret
-    
+
+    # one-shot evaluation
+
+
     onplateau_scheduler.step(val_loss)
 
     # Write a csv log file
     write_csv_log(logs_path, "%i,%f,%f,%f,%f" % (epoch, train_loss, train_acc, val_loss, val_acc))
-    
+
     # remember best accuracy and save checkpoint
     if val_acc > best_acc:
         best_acc = max(val_acc, best_acc)
-        save_checkpoint(logs_path, 'val_acc', 
+        save_checkpoint(logs_path, 'val_acc',
                         {'epoch': epoch + 1,
                          'state_dict': siamese_net.state_dict(),
-                         'val_acc': val_acc,           
+                         'val_acc': val_acc,
                          'optimizer': optimizer.state_dict()})
