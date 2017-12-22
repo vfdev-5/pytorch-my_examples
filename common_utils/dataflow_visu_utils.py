@@ -124,6 +124,10 @@ def _to_ndarray(x):
 
 
 def _to_str(y, width=15):
+    if torch.is_tensor(y):
+        if y.is_cuda:
+            y = y.cpu()
+        y = y.numpy()
     y_str = "{}".format(y)
     if len(y_str) < width:
         return y_str

@@ -1,16 +1,19 @@
-"""
-https://github.com/szagoruyko/functional-zoo/blob/master/visualize.py
-"""
+
+from collections import Mapping, Sequence
 import numpy as np
 
 from graphviz import Digraph
 
 import torch
 from torch.autograd import Variable
+from torch.utils.data.dataloader import string_classes
 
 
 def make_dot(var, params=None):
-    """ Produces Graphviz representation of PyTorch autograd graph
+    """
+    https://github.com/szagoruyko/functional-zoo/blob/master/visualize.py
+
+    Produces Graphviz representation of PyTorch autograd graph
     Blue nodes are the Variables that require grad, orange are Tensors
     saved for backward in torch.autograd.Function
     Args:
@@ -65,3 +68,17 @@ def print_trainable_parameters(m):
         print(name, p.size())
         total_number += np.prod(p.size())
     print("\nTotal number of trainable parameters: ", total_number)
+
+
+def apply_variable(batch, **variable_kwargs):
+    if torch.is_tensor(batch):
+        return Variable(batch, **variable_kwargs)
+    elif isinstance(batch, string_classes):
+        return batch
+    elif isinstance(batch, Mapping):
+        return {k: apply_variable(sample, **variable_kwargs) for k, sample in batch.items()}
+    elif isinstance(batch, Sequence):
+        return [apply_variable(sample, **variable_kwargs) for sample in batch]
+    else:
+        raise TypeError(("batch must contain tensors, numbers, dicts or lists; found {}"
+                         .format(type(batch[0]))))

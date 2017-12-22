@@ -1,10 +1,13 @@
 
-import os, sys
+import os
 from glob import glob
-from tqdm import tqdm
+
 
 import torch
 from torch.autograd import Variable
+
+from . import get_tqdm
+from .nn_utils import apply_variable
 
 
 def train_one_epoch(model, train_batches, criterion, optimizer, epoch, n_epochs, avg_metrics=None):
@@ -35,10 +38,7 @@ def train_one_epoch(model, train_batches, criterion, optimizer, epoch, n_epochs,
                 assert torch.is_tensor(batch_y)
                 batch_size = batch_y.size(0)
 
-                if isinstance(batch_x, list):
-                    batch_x = [Variable(batch_, requires_grad=True) for batch_ in batch_x]
-                else:
-                    batch_x = [Variable(batch_x, requires_grad=True)]
+                batch_x = apply_variable(batch_x, requires_grad=True)
                 batch_y = Variable(batch_y)
 
                 # compute output and measure loss
@@ -55,7 +55,7 @@ def train_one_epoch(model, train_batches, criterion, optimizer, epoch, n_epochs,
                     for _fn, av_meter in zip(avg_metrics, average_meters[1:]):
                         v = _fn(batch_y_pred.data, batch_y.data)
                         av_meter.update(v, batch_size)
-                        post_fix_str += " | {name} {av_meter.avg:.3f}".format(name=_fn.__name__, av_meter=av_meter)
+                        post_fix_str += " | {name} {avg:.3f}".format(name=_fn.__name__, avg=av_meter.avg)
 
                 pbar.set_postfix_str(post_fix_str, refresh=False)
                 pbar.update(1)
@@ -98,10 +98,7 @@ def validate(model, val_batches, criterion, avg_metrics=None, full_data_metrics=
                 assert torch.is_tensor(batch_y)
                 batch_size = batch_y.size(0)
 
-                if isinstance(batch_x, list):
-                    batch_x = [Variable(batch_, volatile=True) for batch_ in batch_x]
-                else:
-                    batch_x = [Variable(batch_x, volatile=True)]
+                batch_x = apply_variable(batch_x, requires_grad=True)
                 batch_y = Variable(batch_y, volatile=True)
 
                 # compute output and measure loss
@@ -144,6 +141,36 @@ def validate(model, val_batches, criterion, avg_metrics=None, full_data_metrics=
         return None
 
 
+class EarlyStopping(object):
+    def __init__(self, patience, mode='min', verbose=True):
+        assert mode in ('min', 'max')
+        self.patience = patience
+        self.monitor = []
+        self.best_metric = None
+        self.verbose = verbose
+        if mode == 'min':
+            self.compare = lambda x, y: x > y
+        elif mode == 'max':
+            self.compare = lambda x, y: x < y
+
+    def __call__(self, metric):
+        if self.best_metric is None:
+            self.best_metric = metric
+            return False
+        if self.compare(metric, self.best_metric):
+            self.monitor.append(metric)
+            if self.verbose:
+                print("\nEarlyStopping: %i / %i\n" % (len(self.monitor), self.patience))
+            if len(self.monitor) >= self.patience:
+                if self.verbose:
+                    print("\n\nEarlyStopping: STOP")
+                return True
+        else:
+            self.best_metric = metric
+            self.monitor = []
+        return False
+
+
 def save_checkpoint(logs_path, val_metric_name, state):
     best_model_filenames = glob(os.path.join(logs_path, 'model_%s*' % val_metric_name))
     for fn in best_model_filenames:
@@ -179,7 +206,7 @@ def _write_log(filename, line):
         w.write(line + '\n')
 
 
-def verbose_optimizer(optimizer):
+def optimizer_to_str(optimizer):
     msg = "\nOptimizer: %s\n" % optimizer.__class__.__name__
     for pg in optimizer.param_groups:
         msg += "- Param group: \n"
@@ -214,6 +241,12 @@ def accuracy(output, target, topk=(1,)):
     maxk = max(topk)
     batch_size = target.size(0)
 
+    if isinstance(output, Variable):
+        output = output.data
+
+    if isinstance(target, Variable):
+        target = target.data
+
     if output.size(1) > 1:
         _, pred = output.topk(maxk)
     else:
@@ -232,41 +265,3 @@ def accuracy(output, target, topk=(1,)):
         correct_k = correct[:, :k].float().sum()
         res.append(correct_k * (1.0 / batch_size))
     return res if len(topk) > 1 else res[0]
-
-
-def get_tqdm_kwargs(**kwargs):
-    """
-    Return default arguments to be used with tqdm.
-    Args:
-        kwargs: extra arguments to be used.
-    Returns:
-        dict:
-    """
-    default = dict(
-        smoothing=0.5,
-        dynamic_ncols=True,
-        ascii=True,
-    )
-    f = kwargs.get('file', sys.stderr)
-    isatty = f.isatty()
-    # Jupyter notebook should be recognized as tty. Wait for
-    # https://github.com/ipython/ipykernel/issues/268
-    try:
-        from ipykernel import iostream
-        if isinstance(f, iostream.OutStream):
-            isatty = True
-    except ImportError:
-        pass
-    if isatty:
-        default['mininterval'] = 0.25
-    else:
-        # If not a tty, don't refresh progress bar that often
-        default['mininterval'] = 300
-    default.update(kwargs)
-    return default
-
-
-def get_tqdm(**kwargs):
-    """ Similar to :func:`get_tqdm_kwargs`,
-    but returns the tqdm object directly. """
-    return tqdm(**get_tqdm_kwargs(**kwargs))

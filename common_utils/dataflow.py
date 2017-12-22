@@ -13,6 +13,7 @@ from torch.utils.data.dataloader import DataLoaderIter, string_classes
 class ProxyDataset(Dataset):
 
     def __init__(self, ds):
+        # super()
         assert isinstance(ds, Dataset)
         self.ds = ds
 
@@ -90,7 +91,6 @@ class TransformedDataset(ProxyDataset):
         x = self.x_transforms(x)
         if self.y_transforms is not None:
             y = self.y_transforms(y)
-
         return x, y
 
 
